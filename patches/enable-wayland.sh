@@ -66,3 +66,5 @@ else
 fi
 
 echo "enable-wayland: done."
+
+# CI: trigger build (no functional change)
