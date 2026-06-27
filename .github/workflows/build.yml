@@ -42,13 +42,14 @@ jobs:
           git clone --depth 1 --branch "$TERMUX_REF" \
             https://github.com/termux/termux-packages .work/termux-packages
 
-      - name: Apply Wayland overlay to the hangover-wine recipe
+      - name: Apply Wayland + FEX-backend overlays to the hangover-wine recipe
         run: |
-          ./patches/enable-wayland.sh \
-            .work/termux-packages/x11-packages/hangover-wine/build.sh
+          recipe=.work/termux-packages/x11-packages/hangover-wine/build.sh
+          ./patches/enable-wayland.sh "$recipe"
+          ./patches/install-fex-backends.sh "$recipe"
           echo "----- patched recipe -----"
-          grep -nE "TERMUX_PKG_DEPENDS=|TERMUX_PKG_BUILD_DEPENDS=|with-wayland" \
-            .work/termux-packages/x11-packages/hangover-wine/build.sh
+          grep -nE "TERMUX_PKG_DEPENDS=|TERMUX_PKG_BUILD_DEPENDS=|with-wayland|post_massage" \
+            "$recipe"
 
       - name: Resolve Hangover version from the recipe
         id: ver
@@ -68,6 +69,14 @@ jobs:
           mkdir -p out
           cp .work/termux-packages/output/hangover-wine_*.deb out/
           ls -la out/
+
+      - name: Verify package contents (release gate)
+        run: |
+          # Hard gate: the .deb MUST contain winewayland.drv AND all three FEX
+          # WoW64 backends (libwow64fex / libarm64ecfex / wowbox64). A green
+          # build that is missing a backend is a functionally-dead release, so
+          # fail here before anything is published.
+          ./inspect-deb.sh out/hangover-wine_*.deb
 
       - name: Fetch bionic runtime-dependency .debs
         env:
