@@ -19,7 +19,7 @@ result.
 A GitHub Release per Hangover version, always reachable at a stable URL:
 
 ```
-https://github.com/piperella/hangover-bionic/releases/latest/download/hangover-bionic-aarch64.tar
+https://github.com/piperella/Piperella-Hangover-Bionic/releases/latest/download/hangover-bionic-aarch64.tar
 ```
 
 The tar contains the bionic `hangover-wine_<ver>_aarch64.deb` plus the bionic
