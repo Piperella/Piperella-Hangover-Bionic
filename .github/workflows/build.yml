@@ -70,6 +70,13 @@ jobs:
           cp .work/termux-packages/output/hangover-wine_*.deb out/
           ls -la out/
 
+      - name: Preserve raw .deb (even if the gate fails)
+        uses: actions/upload-artifact@v4
+        with:
+          name: hangover-wine-deb-${{ steps.ver.outputs.version }}
+          path: out/hangover-wine_*.deb
+          if-no-files-found: error
+
       - name: Verify package contents (release gate)
         run: |
           # Hard gate: the .deb MUST contain winewayland.drv AND all three FEX

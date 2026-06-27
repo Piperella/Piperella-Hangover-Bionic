@@ -18,6 +18,9 @@ set -euo pipefail
 
 DEB="${1:?usage: inspect-deb.sh <hangover-wine_*.deb>}"
 [ -f "$DEB" ] || { echo "inspect-deb: no such file: $DEB" >&2; exit 1; }
+# Resolve to an absolute path: we cd into a temp dir below, after which a
+# relative path (e.g. out/hangover-wine_*.deb) would no longer resolve.
+DEB="$(cd "$(dirname "$DEB")" && pwd)/$(basename "$DEB")"
 
 g="\033[32m"; y="\033[33m"; r="\033[31m"; b="\033[1;34m"; x="\033[0m"
 
