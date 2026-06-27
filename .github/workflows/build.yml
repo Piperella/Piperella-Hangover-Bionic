@@ -1,0 +1,117 @@
+name: build
+
+# Builds a Wayland-enabled, bionic-native Hangover (Wine + FEX WoW64) for Android
+# arm64 and publishes it as a GitHub Release asset. Public repo → free unlimited
+# Actions minutes. Uses Termux's own pinned Docker builder (the setup
+# termux-packages CI uses), which works correctly on GitHub runners and avoids the
+# host-OS gaps a native build hits. Versions are not hardcoded: termux-packages is
+# cloned at its latest ref and the Hangover version is read from the recipe.
+
+on:
+  workflow_dispatch:
+    inputs:
+      termux_ref:
+        description: "termux-packages ref to build from (default: latest master)"
+        default: "master"
+  push:
+    paths:
+      - ".github/workflows/build.yml"
+      - "patches/**"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      TERMUX_REF: ${{ github.event.inputs.termux_ref || 'master' }}
+      ASSET: hangover-bionic-aarch64.tar
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Free up disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+                      /usr/local/share/boost "$AGENT_TOOLSDIRECTORY" || true
+          df -h /
+
+      - name: Clone termux-packages (${{ env.TERMUX_REF }})
+        run: |
+          git clone --depth 1 --branch "$TERMUX_REF" \
+            https://github.com/termux/termux-packages .work/termux-packages
+
+      - name: Apply Wayland overlay to the hangover-wine recipe
+        run: |
+          ./patches/enable-wayland.sh \
+            .work/termux-packages/x11-packages/hangover-wine/build.sh
+          echo "----- patched recipe -----"
+          grep -nE "TERMUX_PKG_DEPENDS=|TERMUX_PKG_BUILD_DEPENDS=|with-wayland" \
+            .work/termux-packages/x11-packages/hangover-wine/build.sh
+
+      - name: Resolve Hangover version from the recipe
+        id: ver
+        run: |
+          v="$(. .work/termux-packages/x11-packages/hangover-wine/build.sh 2>/dev/null; echo "$TERMUX_PKG_VERSION")"
+          [ -n "$v" ] || { echo "could not read TERMUX_PKG_VERSION"; exit 1; }
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "tag=hangover-bionic-$v" >> "$GITHUB_OUTPUT"
+          echo "Hangover version: $v"
+
+      - name: Build hangover-wine (Termux Docker builder)
+        working-directory: .work/termux-packages
+        run: ./scripts/run-docker.sh ./build-package.sh -a aarch64 -I hangover-wine
+
+      - name: Collect the built .deb
+        run: |
+          mkdir -p out
+          cp .work/termux-packages/output/hangover-wine_*.deb out/
+          ls -la out/
+
+      - name: Fetch bionic runtime-dependency .debs
+        env:
+          OUTPUT: ${{ github.workspace }}/out/deps
+          RECIPE: ${{ github.workspace }}/.work/termux-packages/x11-packages/hangover-wine/build.sh
+        run: ./fetch-runtime-deps.sh
+
+      - name: Bundle everything into one tar
+        run: |
+          rm -f out/deps/.Packages* out/deps/.records || true
+          tar -C out -cf "$ASSET" .
+          ls -la "$ASSET" out out/deps | head -40
+
+      - name: Upload workflow artifact (backup)
+        uses: actions/upload-artifact@v4
+        with:
+          name: hangover-bionic-${{ steps.ver.outputs.version }}-aarch64
+          path: |
+            out/hangover-wine_*.deb
+            ${{ env.ASSET }}
+          if-no-files-found: error
+
+      - name: Publish to GitHub Release (latest)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.ver.outputs.tag }}
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          set -e
+          notes="Wayland-enabled, bionic-native Hangover ${VERSION} (Wine + FEX WoW64)
+          for Android arm64, built from termux-packages \`${TERMUX_REF}\` with
+          \`--with-wayland\`. Loads via /system/bin/linker64 at targetSdk 36.
+
+          Stable download (always newest):
+          \`releases/latest/download/${ASSET}\`
+
+          Assets:
+          - ${ASSET} — Hangover package + bionic runtime-dep .debs
+          - hangover-wine_${VERSION}_aarch64.deb — the package alone"
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" \
+              --title "Hangover bionic ${VERSION} (Wayland)" \
+              --notes "$notes" --latest --target "$GITHUB_SHA"
+          else
+            gh release edit "$TAG" --latest --notes "$notes"
+          fi
+          gh release upload "$TAG" "$ASSET" out/hangover-wine_*.deb --clobber
