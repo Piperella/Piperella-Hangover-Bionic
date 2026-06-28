@@ -13,6 +13,12 @@
 # backend no x86 Windows app can launch (wow64.dll alone is only a thunk layer);
 # without winewayland.drv there is no Wayland output. Either is a release-blocker.
 #
+# It also gates the runtime-environment fixes:
+#   * wineserver/ntdll must honor $XDG_RUNTIME_DIR for the server dir — i.e. the
+#     baked /data/data/com.termux/.../tmp/.wine path must be GONE and the
+#     XDG_RUNTIME_DIR string present. (Otherwise wineboot --init fails in-app.)
+#   * no aarch64-unix/wine-preloader — it cannot be loaded by linker64 at API 36.
+#
 # Usage: inspect-deb.sh <hangover-wine_*.deb>
 set -euo pipefail
 
@@ -55,9 +61,40 @@ echo "Wine WoW64 thunk layer (informational):"
 check "wow64.dll"    wow64.dll    0
 check "wow64win.dll" wow64win.dll 0
 
+# --- wineserver/temp dir must honor $XDG_RUNTIME_DIR, not a baked Termux path ---
+# Use process substitution (not a pipe): with `set -o pipefail`, `strings | grep -q`
+# returns non-zero when grep short-circuits and strings takes SIGPIPE, which would
+# misreport a match as a miss.
+has_str() { grep -qaF -- "$2" < <(strings "$1" 2>/dev/null); }
+echo "Server dir honors \$XDG_RUNTIME_DIR (no baked Termux tmp path):"
+bad_path='com.termux/files/usr/tmp/.wine'
+for rel in opt/hangover-wine/bin/wineserver opt/hangover-wine/lib/wine/aarch64-unix/ntdll.so; do
+	bin="$(find "$work" -type f -path "*${rel}" | head -n1)"
+	name="${rel##*/}"
+	if [ -z "$bin" ]; then
+		printf "  ${r}\xe2\x9c\x97 %-12s NOT FOUND in deb${x}\n" "$name"; rc=1; continue
+	fi
+	if has_str "$bin" "$bad_path"; then
+		printf "  ${r}\xe2\x9c\x97 %-12s still has baked path %s${x}\n" "$name" "$bad_path"; rc=1
+	elif has_str "$bin" "XDG_RUNTIME_DIR"; then
+		printf "  ${g}\xe2\x9c\x93${x} %-12s honors XDG_RUNTIME_DIR, no baked Termux tmp path\n" "$name"
+	else
+		printf "  ${r}\xe2\x9c\x97 %-12s no XDG_RUNTIME_DIR reference (fix not applied?)${x}\n" "$name"; rc=1
+	fi
+done
+
+# --- wine-preloader must be gone (cannot be loaded by linker64 at API 36) ---
+echo "No wine-preloader:"
+preloader="$(find "$work" -type f -name 'wine-preloader' | head -n1)"
+if [ -n "$preloader" ]; then
+	printf "  ${r}\xe2\x9c\x97 wine-preloader present: %s${x}\n" "${preloader#$work/}"; rc=1
+else
+	printf "  ${g}\xe2\x9c\x93${x} no wine-preloader in package\n"
+fi
+
 if [ "$rc" -ne 0 ]; then
 	echo -e "${r}inspect-deb: FAIL${x} — required component(s) missing from $(basename "$DEB")" >&2
 else
-	echo -e "${g}inspect-deb: OK${x} — winewayland.drv + all three FEX WoW64 backends present"
+	echo -e "${g}inspect-deb: OK${x} — winewayland.drv + 3 FEX backends present, server dir honors \$XDG_RUNTIME_DIR, no wine-preloader"
 fi
 exit "$rc"

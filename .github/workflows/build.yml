@@ -42,13 +42,14 @@ jobs:
           git clone --depth 1 --branch "$TERMUX_REF" \
             https://github.com/termux/termux-packages .work/termux-packages
 
-      - name: Apply Wayland + FEX-backend overlays to the hangover-wine recipe
+      - name: Apply Wayland + FEX-backend + wineserver-dir overlays to the recipe
         run: |
           recipe=.work/termux-packages/x11-packages/hangover-wine/build.sh
           ./patches/enable-wayland.sh "$recipe"
           ./patches/install-fex-backends.sh "$recipe"
+          ./patches/fix-wineserver-dir.sh "$recipe"
           echo "----- patched recipe -----"
-          grep -nE "TERMUX_PKG_DEPENDS=|TERMUX_PKG_BUILD_DEPENDS=|with-wayland|post_massage" \
+          grep -nE "TERMUX_PKG_DEPENDS=|TERMUX_PKG_BUILD_DEPENDS=|with-wayland|without-preloader|post_massage" \
             "$recipe"
 
       - name: Resolve Hangover version from the recipe
