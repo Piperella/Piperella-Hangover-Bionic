@@ -106,16 +106,25 @@ jobs:
             ${{ env.ASSET }}
           if-no-files-found: error
 
-      - name: Publish to GitHub Release (latest)
+      - name: Publish to GitHub Release (a new release per successful build)
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.ver.outputs.tag }}
           VERSION: ${{ steps.ver.outputs.version }}
+          RUN: ${{ github.run_number }}
         run: |
           set -e
+          # One distinct release per successful build (not a single release that
+          # gets clobbered each time). The tag carries the Hangover version plus
+          # the CI build number so every build is its own, sortable entry. Each
+          # is marked --latest, so the stable releases/latest/download/<asset>
+          # URL always resolves to the newest build's assets.
+          TAG="hangover-bionic-${VERSION}-build${RUN}"
           notes="Wayland-enabled, bionic-native Hangover ${VERSION} (Wine + FEX WoW64)
           for Android arm64, built from termux-packages \`${TERMUX_REF}\` with
-          \`--with-wayland\`. Loads via /system/bin/linker64 at targetSdk 36.
+          \`--with-wayland\` and the FEX WoW64 backends (libwow64fex,
+          libarm64ecfex, wowbox64). Loads via /system/bin/linker64 at targetSdk 36.
+
+          Build #${RUN} · commit ${GITHUB_SHA}
 
           Stable download (always newest):
           \`releases/latest/download/${ASSET}\`
@@ -123,11 +132,7 @@ jobs:
           Assets:
           - ${ASSET} — Hangover package + bionic runtime-dep .debs
           - hangover-wine_${VERSION}_aarch64.deb — the package alone"
-          if ! gh release view "$TAG" >/dev/null 2>&1; then
-            gh release create "$TAG" \
-              --title "Hangover bionic ${VERSION} (Wayland)" \
-              --notes "$notes" --latest --target "$GITHUB_SHA"
-          else
-            gh release edit "$TAG" --latest --notes "$notes"
-          fi
+          gh release create "$TAG" \
+            --title "Hangover bionic ${VERSION} (Wayland + FEX) — build #${RUN}" \
+            --notes "$notes" --latest --target "$GITHUB_SHA"
           gh release upload "$TAG" "$ASSET" out/hangover-wine_*.deb --clobber
