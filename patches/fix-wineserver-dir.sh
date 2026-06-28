@@ -57,6 +57,23 @@ else
 	exit 2
 fi
 
+# 1b. Actually delete wine-preloader from the package. Wine has no real
+#     --without-preloader option (autoconf accepts the unknown --without-* as a
+#     no-op); the preloader is built whenever configure's WINELOADER_PROGRAMS
+#     includes it. So drop the binary via TERMUX_PKG_RM_AFTER_INSTALL, which
+#     termux_step_massage removes (relative to $TERMUX_PREFIX) before packaging.
+#     Cover every unix arch; rm -f ignores the ones that don't exist.
+RM_PRELOADERS="opt/hangover-wine/lib/wine/aarch64-unix/wine-preloader opt/hangover-wine/lib/wine/i386-unix/wine-preloader"
+if grep -q 'wine/.*-unix/wine-preloader' "$F"; then
+	echo "  = TERMUX_PKG_RM_AFTER_INSTALL : wine-preloader (already present)"
+elif grep -qE '^TERMUX_PKG_RM_AFTER_INSTALL=' "$F"; then
+	sed -i -E "s|^(TERMUX_PKG_RM_AFTER_INSTALL=\"[^\"]*)\"|\1 ${RM_PRELOADERS}\"|" "$F"
+	echo "  + TERMUX_PKG_RM_AFTER_INSTALL : wine-preloader (appended)"
+else
+	printf 'TERMUX_PKG_RM_AFTER_INSTALL="%s"\n' "$RM_PRELOADERS" >> "$F"
+	echo "  + TERMUX_PKG_RM_AFTER_INSTALL : wine-preloader (created)"
+fi
+
 # 2. Rewrite the hardcoded wineserver dir in 0001-fix-paths.patch.
 [ -f "$PATCH" ] || { echo "fix-wineserver-dir: $PATCH not found (upstream layout changed?)" >&2; exit 1; }
 if grep -q 'XDG_RUNTIME_DIR' "$PATCH"; then
