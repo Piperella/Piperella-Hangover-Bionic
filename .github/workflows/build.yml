@@ -48,6 +48,7 @@ jobs:
           ./patches/enable-wayland.sh "$recipe"
           ./patches/install-fex-backends.sh "$recipe"
           ./patches/fix-wineserver-dir.sh "$recipe"
+          ./patches/fix-nls-dir.sh "$recipe"
           echo "----- patched recipe -----"
           grep -nE "TERMUX_PKG_DEPENDS=|TERMUX_PKG_BUILD_DEPENDS=|with-wayland|without-preloader|post_massage" \
             "$recipe"

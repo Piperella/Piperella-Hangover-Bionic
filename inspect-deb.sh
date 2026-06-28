@@ -83,6 +83,18 @@ for rel in opt/hangover-wine/bin/wineserver opt/hangover-wine/lib/wine/aarch64-u
 	fi
 done
 
+# --- wineserver must resolve its NLS/install dir via $WINELOADER, not /proc/self/exe ---
+# Under the API-36 linker64 launch /proc/self/exe is the loader; the fix makes
+# get_nls_dir() consult $WINELOADER (and argv0). Stock wineserver has no
+# WINELOADER reference, so its presence confirms the fix compiled in.
+echo "wineserver resolves NLS via \$WINELOADER (not /proc/self/exe):"
+ws="$(find "$work" -type f -path '*opt/hangover-wine/bin/wineserver' | head -n1)"
+if [ -n "$ws" ] && has_str "$ws" "WINELOADER"; then
+	printf "  ${g}\xe2\x9c\x93${x} wineserver consults WINELOADER for its install dir\n"
+else
+	printf "  ${r}\xe2\x9c\x97 wineserver: no WINELOADER reference (NLS dir fix not applied?)${x}\n"; rc=1
+fi
+
 # --- wine-preloader must be gone (cannot be loaded by linker64 at API 36) ---
 echo "No wine-preloader:"
 preloader="$(find "$work" -type f -name 'wine-preloader' | head -n1)"
