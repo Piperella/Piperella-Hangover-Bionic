@@ -49,6 +49,7 @@ jobs:
           ./patches/install-fex-backends.sh "$recipe"
           ./patches/fix-wineserver-dir.sh "$recipe"
           ./patches/fix-nls-dir.sh "$recipe"
+          ./patches/fix-exec-wx.sh "$recipe"
           echo "----- patched recipe -----"
           grep -nE "TERMUX_PKG_DEPENDS=|TERMUX_PKG_BUILD_DEPENDS=|with-wayland|without-preloader|post_massage" \
             "$recipe"
