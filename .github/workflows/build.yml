@@ -17,6 +17,9 @@ on:
     paths:
       - ".github/workflows/build.yml"
       - "patches/**"
+      - "build-fex-arm64ec.sh"
+      - "inspect-deb.sh"
+      - "fetch-runtime-deps.sh"
 
 permissions:
   contents: write
