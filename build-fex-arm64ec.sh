@@ -11,9 +11,9 @@
 # client (arm64ec) crash-loops on that FEX: Chromium's CEF allocator calls
 # VirtualAlloc(MEM_RESET) on code pages, and FEX-2605 wrongly strips execute
 # permission in response, producing a later NX fault through the arm64ec
-# call-dispatch thunk. That's FEX-Emu/FEX issue #4493, fixed by PR #4767
-# (commit 7d818e18be0c8e4d759da4faf24d0eb33c30aa71), which landed in FEX
-# upstream after the 2605 tag. FEX-2603 and FEX-2605 themselves also carry
+# call-dispatch thunk. That's FEX-Emu/FEX issue #4493, fixed by PR #4767 (two
+# commits, cd1cf6f615 + 52af0aceea, authored 2025-08-07) which is present in
+# FEX-2607's tagged source. FEX-2603 and FEX-2605 themselves also carry
 # separate required fixes (CEF io_uring/fd ABI break, suspend-doorbell race).
 # FEX ships no prebuilt Windows dll as a release asset (source only), so the
 # only way to get the fix is to build the arm64ec/wow64 targets ourselves.
@@ -21,8 +21,9 @@
 # WHAT
 # ----
 # Resolves the latest FEX-Emu/FEX release tag (override with FEX_TAG), hard-
-# gates that its numeric suffix is >= 2605 and that its history contains the
-# #4767 fix commit, then builds the `arm64ecfex` and `wow64fex` CMake targets
+# gates that its numeric suffix is >= 2605 and that its checked-out source
+# contains the #4767 fix (by content, see FIX_4493_PATTERN below), then builds
+# the `arm64ecfex` and `wow64fex` CMake targets
 # with the exact toolchain/flags Hangover's own (Docker-based) release CI uses
 # for these targets (.packaging/ubuntu2204/fexpe{,ec}/Dockerfile in
 # AndreRH/hangover): the `bylaws/llvm-mingw` fork (FEX requires this fork's
@@ -40,7 +41,18 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 OUTPUT="${1:-$HERE/out/fex}"
 WORKDIR="${WORKDIR:-$HERE/.work/fex-build}"
 MIN_FEX_NUM=2605
-FIX_4493_COMMIT="7d818e18be0c8e4d759da4faf24d0eb33c30aa71"  # PR #4767, fixes issue #4493
+# PR #4767 (issue #4493) landed as two real commits, cd1cf6f615 ("ARM64EC: Drop
+# redundant ThreadCreationMutex locks") and 52af0aceea ("Windows: Ignore
+# MEM_RESET(_UNDO) allocation protection notifications"), merged 2025-08-07.
+# We verify by CONTENT, not by commit-SHA ancestry: upstream commit hashes can
+# differ across rebases/cherry-picks even when the code is identical (this bit
+# us in practice -- a merge-commit SHA sourced from web research turned out not
+# to be an ancestor of the FEX-2607 tag via `git merge-base`, even though the
+# tagged source verifiably contains the exact fixed code). The fix's
+# unmistakable fingerprint is this guard added to both Windows memory-
+# notification handlers, so MEM_RESET(_UNDO) no longer strips exec permission:
+FIX_4493_PATTERN='Type & (MEM_RESET | MEM_RESET_UNDO)'
+FIX_4493_FILES="Source/Windows/ARM64EC/Module.cpp Source/Windows/WOW64/Module.cpp"
 LLVM_MINGW_VER="20240929"
 LLVM_MINGW_URL="https://github.com/bylaws/llvm-mingw/releases/download/${LLVM_MINGW_VER}/llvm-mingw-${LLVM_MINGW_VER}-ucrt-ubuntu-20.04-x86_64.tar.xz"
 
@@ -82,17 +94,21 @@ FEX_COMMIT="$(git -C "$SRC" rev-parse HEAD)"
 FEX_COMMIT_DATE="$(git -C "$SRC" log -1 --format=%cI)"
 log "FEX commit: $FEX_COMMIT ($FEX_COMMIT_DATE)"
 
-# 3. Hard gate: verify the checked-out tree actually contains the #4493 fix.
-#    A shallow clone has no history to walk, so fetch just enough of it.
-if ! git -C "$SRC" cat-file -e "$FIX_4493_COMMIT" 2>/dev/null; then
-	git -C "$SRC" fetch --depth 200 origin "$FIX_4493_COMMIT" 2>/dev/null || \
-		git -C "$SRC" fetch --unshallow origin 2>/dev/null || true
-fi
-if git -C "$SRC" merge-base --is-ancestor "$FIX_4493_COMMIT" HEAD 2>/dev/null; then
-	log "Verified: $FEX_TAG contains the #4493/PR-4767 fix ($FIX_4493_COMMIT)"
-else
-	die "$FEX_TAG ($FEX_COMMIT) does NOT contain the required #4493 fix commit $FIX_4493_COMMIT -- refusing to build a still-broken FEX"
-fi
+# 3. Hard gate: verify the checked-out tree actually contains the #4493 fix,
+#    by content. See FIX_4493_PATTERN above for why this checks source content
+#    rather than commit-SHA ancestry.
+fix_found=0
+for f in $FIX_4493_FILES; do
+	if [ -f "$SRC/$f" ] && grep -qF "$FIX_4493_PATTERN" "$SRC/$f"; then
+		log "  found fix pattern in $f"
+		fix_found=$((fix_found + 1))
+	else
+		log "  fix pattern NOT found in $f"
+	fi
+done
+[ "$fix_found" -eq "$(echo $FIX_4493_FILES | wc -w)" ] || \
+	die "$FEX_TAG ($FEX_COMMIT) is missing the #4493 MEM_RESET fix (PR #4767) in one or more of: $FIX_4493_FILES -- refusing to build a still-broken FEX"
+log "Verified: $FEX_TAG contains the #4493/PR-4767 MEM_RESET fix in all required files"
 
 # 4. Toolchain: FEX's arm64ec-w64-mingw32 target needs the bylaws/llvm-mingw
 #    fork specifically (same one Hangover's own release CI uses) -- mainline
@@ -135,11 +151,15 @@ build_target arm64ec-w64-mingw32 arm64ecfex libarm64ecfex.dll build-ec
 build_target aarch64-w64-mingw32 wow64fex   libwow64fex.dll   build-wow64
 
 # 5. Record build metadata for the release gate and for shipping inside the .deb.
+#    This file gets sourced (`. FEX_BUILD_INFO`) by both the CI workflow and
+#    inspect-deb.sh, so every value must be a single shell "word" -- no spaces
+#    unquoted -- or sourcing it will try to run the trailing words as commands.
+fix_4493_files_csv="$(echo "$FIX_4493_FILES" | tr ' ' ',')"
 cat > "$OUTPUT/FEX_BUILD_INFO" <<EOF
 FEX_TAG=$FEX_TAG
 FEX_COMMIT=$FEX_COMMIT
 FEX_COMMIT_DATE=$FEX_COMMIT_DATE
-FIX_4493_COMMIT=$FIX_4493_COMMIT
+FIX_4493_VERIFIED=content-match:$fix_4493_files_csv
 BUILT_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 EOF
 

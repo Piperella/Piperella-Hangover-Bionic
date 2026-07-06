@@ -131,8 +131,8 @@ else
 		  printf "  ${r}\xe2\x9c\x97 FEX_BUILD_INFO reports FEX_TAG=%s (< FEX-%s)${x}\n" "${FEX_TAG:-?}" "$MIN_FEX_NUM"
 		  exit 1
 	  fi
-	  [ -n "${FIX_4493_COMMIT:-}" ] || { printf "  ${r}\xe2\x9c\x97 FEX_BUILD_INFO missing FIX_4493_COMMIT record${x}\n"; exit 1; }
-	  printf "  ${g}\xe2\x9c\x93${x} FEX_BUILD_INFO: %s (%s), includes fix %s\n" "$FEX_TAG" "${FEX_COMMIT:-?}" "$FIX_4493_COMMIT"
+	  [ -n "${FIX_4493_VERIFIED:-}" ] || { printf "  ${r}\xe2\x9c\x97 FEX_BUILD_INFO missing FIX_4493_VERIFIED record${x}\n"; exit 1; }
+	  printf "  ${g}\xe2\x9c\x93${x} FEX_BUILD_INFO: %s (%s), %s\n" "$FEX_TAG" "${FEX_COMMIT:-?}" "$FIX_4493_VERIFIED"
 	) || rc=1
 fi
 
