@@ -42,6 +42,18 @@ jobs:
           git clone --depth 1 --branch "$TERMUX_REF" \
             https://github.com/termux/termux-packages .work/termux-packages
 
+      - name: Build fresh FEX WoW64 backends (arm64ec Steam-CEF fix, issue #4493)
+        id: fex
+        run: |
+          sudo apt-get update -yq
+          sudo apt-get install -yq --no-install-recommends cmake ninja-build python3 build-essential
+          FEX_OUT=.work/termux-packages/piperella-fex-dlls
+          ./build-fex-arm64ec.sh "$FEX_OUT"
+          . "$FEX_OUT/FEX_BUILD_INFO"
+          echo "tag=$FEX_TAG" >> "$GITHUB_OUTPUT"
+          echo "commit=$FEX_COMMIT" >> "$GITHUB_OUTPUT"
+          rm -rf .work/fex-build   # free disk before the (larger) Wine build
+
       - name: Apply Wayland + FEX-backend + wineserver-dir overlays to the recipe
         run: |
           recipe=.work/termux-packages/x11-packages/hangover-wine/build.sh
@@ -83,9 +95,12 @@ jobs:
       - name: Verify package contents (release gate)
         run: |
           # Hard gate: the .deb MUST contain winewayland.drv AND all three FEX
-          # WoW64 backends (libwow64fex / libarm64ecfex / wowbox64). A green
-          # build that is missing a backend is a functionally-dead release, so
-          # fail here before anything is published.
+          # WoW64 backends (libwow64fex / libarm64ecfex / wowbox64), the two FEX
+          # backends must be the freshly-built ones (not the stale bundled
+          # FEX-2605 that crashes 64-bit/arm64ec apps, issue #4493), and other
+          # runtime-environment fixes must be present. A green build missing any
+          # of this is a functionally-dead or regressed release, so fail here
+          # before anything is published.
           ./inspect-deb.sh out/hangover-wine_*.deb
 
       - name: Fetch bionic runtime-dependency .debs
@@ -114,6 +129,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ steps.ver.outputs.version }}
           RUN: ${{ github.run_number }}
+          FEX_TAG: ${{ steps.fex.outputs.tag }}
+          FEX_COMMIT: ${{ steps.fex.outputs.commit }}
         run: |
           set -e
           # One distinct release per successful build (not a single release that
@@ -124,8 +141,11 @@ jobs:
           TAG="hangover-bionic-${VERSION}-build${RUN}"
           notes="Wayland-enabled, bionic-native Hangover ${VERSION} (Wine + FEX WoW64)
           for Android arm64, built from termux-packages \`${TERMUX_REF}\` with
-          \`--with-wayland\` and the FEX WoW64 backends (libwow64fex,
-          libarm64ecfex, wowbox64). Loads via /system/bin/linker64 at targetSdk 36.
+          \`--with-wayland\`. Loads via /system/bin/linker64 at targetSdk 36.
+
+          Wine ${VERSION} · FEX \`${FEX_TAG}\` (\`${FEX_COMMIT}\`, includes the
+          #4493 arm64ec/CEF MEM_RESET fix — Steam 64-bit no longer crash-loops)
+          · Box64 (wowbox64.dll) unchanged from the Hangover ${VERSION} bundle.
 
           Build #${RUN} · commit ${GITHUB_SHA}
 
@@ -136,6 +156,6 @@ jobs:
           - ${ASSET} — Hangover package + bionic runtime-dep .debs
           - hangover-wine_${VERSION}_aarch64.deb — the package alone"
           gh release create "$TAG" \
-            --title "Hangover bionic ${VERSION} (Wayland + FEX) — build #${RUN}" \
+            --title "Hangover bionic ${VERSION} (Wayland + FEX ${FEX_TAG}) — build #${RUN}" \
             --notes "$notes" --latest --target "$GITHUB_SHA"
           gh release upload "$TAG" "$ASSET" out/hangover-wine_*.deb --clobber

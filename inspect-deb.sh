@@ -18,6 +18,12 @@
 #     baked /data/data/com.termux/.../tmp/.wine path must be GONE and the
 #     XDG_RUNTIME_DIR string present. (Otherwise wineboot --init fails in-app.)
 #   * no aarch64-unix/wine-preloader — it cannot be loaded by linker64 at API 36.
+#   * libarm64ecfex.dll / libwow64fex.dll must be the freshly-built ones from
+#     build-fex-arm64ec.sh (FEX >= 2605, containing the #4493 arm64ec/CEF
+#     MEM_RESET fix) — NOT the stale FEX-2605 bundled in the Hangover release
+#     tarball, which crash-loops Steam's 64-bit client. Gated by (a) a
+#     FEX_BUILD_INFO metadata file shipped in the package and (b) the backend
+#     DLLs' sha256 differing from the known-stale hashes.
 #
 # Usage: inspect-deb.sh <hangover-wine_*.deb>
 set -euo pipefail
@@ -104,9 +110,49 @@ else
 	printf "  ${g}\xe2\x9c\x93${x} no wine-preloader in package\n"
 fi
 
+# --- FEX backends must be the fresh build (>= FEX-2605, has the #4493 fix) ---
+# Known-stale sha256 of the FEX-2605 DLLs bundled in the Hangover 11.9 release
+# tarball (captured from our own build8 release before the fix): if a future
+# build ever reproduces these exact bytes, the fresh-FEX step silently no-oped
+# and the crash-causing backend shipped again.
+STALE_ARM64ECFEX_SHA256="36d6d17089faee767c42c9e4fe57f80e1c65de7320d909ae8b1d3f201585d41f"
+STALE_WOW64FEX_SHA256="d29099e1459471e5c1bbeb1a29d4273ac92657b6863c8d790ea4ab4557185490"
+MIN_FEX_NUM=2605
+
+echo "FEX backends are the freshly-built fix (not the stale bundled FEX-2605):"
+info="$(find "$work" -type f -name FEX_BUILD_INFO | head -n1)"
+if [ -z "$info" ]; then
+	printf "  ${r}\xe2\x9c\x97 FEX_BUILD_INFO not found in package (fresh-FEX step didn't run?)${x}\n"; rc=1
+else
+	# shellcheck disable=SC1090
+	( . "$info"
+	  fex_num="$(echo "${FEX_TAG:-}" | grep -oE '[0-9]+' | head -1)"
+	  if [ -z "$fex_num" ] || [ "$fex_num" -lt "$MIN_FEX_NUM" ]; then
+		  printf "  ${r}\xe2\x9c\x97 FEX_BUILD_INFO reports FEX_TAG=%s (< FEX-%s)${x}\n" "${FEX_TAG:-?}" "$MIN_FEX_NUM"
+		  exit 1
+	  fi
+	  [ -n "${FIX_4493_COMMIT:-}" ] || { printf "  ${r}\xe2\x9c\x97 FEX_BUILD_INFO missing FIX_4493_COMMIT record${x}\n"; exit 1; }
+	  printf "  ${g}\xe2\x9c\x93${x} FEX_BUILD_INFO: %s (%s), includes fix %s\n" "$FEX_TAG" "${FEX_COMMIT:-?}" "$FIX_4493_COMMIT"
+	) || rc=1
+fi
+
+for pair in "libarm64ecfex.dll:$STALE_ARM64ECFEX_SHA256" "libwow64fex.dll:$STALE_WOW64FEX_SHA256"; do
+	fname="${pair%%:*}"; stale="${pair##*:}"
+	f="$winedir/$fname"
+	if [ ! -s "$f" ]; then
+		continue  # already reported missing by the earlier `check` block
+	fi
+	got="$(sha256sum "$f" | cut -d' ' -f1)"
+	if [ "$got" = "$stale" ]; then
+		printf "  ${r}\xe2\x9c\x97 %-19s is byte-identical to the known-stale FEX-2605 build${x}\n" "$fname"; rc=1
+	else
+		printf "  ${g}\xe2\x9c\x93${x} %-19s differs from the known-stale FEX-2605 build\n" "$fname"
+	fi
+done
+
 if [ "$rc" -ne 0 ]; then
 	echo -e "${r}inspect-deb: FAIL${x} — required component(s) missing from $(basename "$DEB")" >&2
 else
-	echo -e "${g}inspect-deb: OK${x} — winewayland.drv + 3 FEX backends present, server dir honors \$XDG_RUNTIME_DIR, no wine-preloader"
+	echo -e "${g}inspect-deb: OK${x} — winewayland.drv + 3 fresh FEX backends (>= FEX-$MIN_FEX_NUM, #4493 fix), server dir honors \$XDG_RUNTIME_DIR, no wine-preloader"
 fi
 exit "$rc"

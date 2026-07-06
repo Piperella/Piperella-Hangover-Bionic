@@ -34,6 +34,17 @@
 # The source DEBs are located with `find` (not a hard-coded $TERMUX_PKG_SRCDIR
 # root path), so this survives a change in where termux unpacks the 2nd source.
 #
+# libarm64ecfex.dll / libwow64fex.dll: Hangover's release bundle ships these
+# built from a stale FEX (2605) that crashes 64-bit (arm64ec) apps using CEF's
+# MEM_RESET allocator pattern (FEX-Emu issue #4493 / steamwebhelper). CI builds
+# fresh ones from upstream FEX-Emu/FEX (see build-fex-arm64ec.sh) containing
+# that fix, and this override REQUIRES those freshly-built DLLs be present
+# (located via a broad filesystem search, since the Termux Docker container's
+# exact bind-mount path isn't guaranteed) -- it does not fall back to the stale
+# bundled ones, so a build that skips the fresh-FEX step fails loudly instead of
+# silently re-shipping the crash. wowbox64.dll (Box64) is unaffected by this and
+# still comes from the bundle.
+#
 # Idempotent: guarded by a marker, so re-running and upstream recipe updates
 # are safe.
 #
@@ -60,17 +71,37 @@ cat >> "$F" <<'EOF'
 termux_step_post_massage() {
 	local _winedir="./opt/hangover-wine/lib/wine/aarch64-windows"
 	[ -d "$_winedir" ] || termux_error_exit "FEX install: wine dir missing in package ($_winedir)"
-	# The three backend DEBs are bundled in the 2nd source tar
-	# (hangover_<ver>_ubuntu2204_jammy_arm64.tar). Prefer the copies termux
-	# already unpacked into $TERMUX_PKG_SRCDIR; fall back to extracting them
-	# straight from the cached source tar, so we never depend on where termux
-	# chose to unpack the 2nd source.
+
+	# libarm64ecfex.dll / libwow64fex.dll: REQUIRE the freshly-built overrides
+	# from build-fex-arm64ec.sh (upstream FEX with the #4493 fix). Search
+	# broadly since the exact bind-mount path inside the Docker container isn't
+	# guaranteed; -xdev keeps it from wandering into /proc, /sys, etc.
+	local _fresh_dir _fresh_info
+	_fresh_dir="$(find / -xdev -maxdepth 10 -type f -name libarm64ecfex.dll -path '*piperella-fex-dlls*' 2>/dev/null | head -n1)"
+	[ -n "$_fresh_dir" ] || termux_error_exit "FEX install: freshly-built libarm64ecfex.dll not found anywhere under piperella-fex-dlls/ -- the build-fex-arm64ec.sh step did not run or its output was not staged; refusing to fall back to the stale bundled FEX (issue #4493)"
+	_fresh_dir="$(dirname "$_fresh_dir")"
+	for _type in libarm64ecfex libwow64fex; do
+		[ -s "$_fresh_dir/${_type}.dll" ] || termux_error_exit "FEX install: $_fresh_dir/${_type}.dll missing/empty"
+		install -Dm644 "$_fresh_dir/${_type}.dll" "$_winedir/${_type}.dll"
+		echo "install-fex-backends: packaged ${_type}.dll ($(stat -c%s "$_winedir/${_type}.dll") bytes) from freshly-built FEX (see FEX_BUILD_INFO)"
+	done
+	_fresh_info="$_fresh_dir/FEX_BUILD_INFO"
+	if [ -s "$_fresh_info" ]; then
+		mkdir -p "./share/doc/hangover-libarm64ecfex"
+		cp "$_fresh_info" "./share/doc/hangover-libarm64ecfex/FEX_BUILD_INFO"
+		echo "install-fex-backends: embedded FEX_BUILD_INFO -- $(tr '\n' ' ' < "$_fresh_info")"
+	fi
+
+	# wowbox64.dll (Box64) is unaffected by the FEX bump; still comes from the
+	# 2nd source tar bundled in Hangover's release (hangover_<ver>_ubuntu2204_
+	# jammy_arm64.tar). Prefer the copy termux already unpacked into
+	# $TERMUX_PKG_SRCDIR; fall back to extracting it from the cached source tar,
+	# so we never depend on where termux chose to unpack the 2nd source.
 	local _stage="$TERMUX_PKG_TMPDIR/fex-debs"
 	rm -rf "$_stage"; mkdir -p "$_stage"
-	local _bundle
+	local _bundle _type _deb _tmp
 	_bundle="$(find "$TERMUX_PKG_CACHEDIR" "$TERMUX_PKG_TMPDIR" -maxdepth 2 -name 'hangover_*_arm64.tar' 2>/dev/null | head -n1)"
-	local _type _deb _tmp
-	for _type in wowbox64 libwow64fex libarm64ecfex; do
+	for _type in wowbox64; do
 		_deb="$(find "$TERMUX_PKG_SRCDIR" -maxdepth 4 -name "hangover-${_type}_*_arm64.deb" 2>/dev/null | head -n1)"
 		if [ -z "$_deb" ] && [ -n "$_bundle" ]; then
 			tar -C "$_stage" -xf "$_bundle" --wildcards "hangover-${_type}_*_arm64.deb" 2>/dev/null || true
