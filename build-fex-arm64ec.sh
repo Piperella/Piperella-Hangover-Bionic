@@ -52,8 +52,13 @@ mkdir -p "$WORKDIR" "$OUTPUT"
 # 1. Resolve the FEX release tag to build (track latest unless overridden).
 if [ -z "${FEX_TAG:-}" ]; then
 	log "Resolving latest FEX-Emu/FEX release tag"
-	FEX_TAG="$(curl -fsSL https://api.github.com/repos/FEX-Emu/FEX/releases/latest | \
-		grep -m1 '"tag_name"' | sed -E 's/.*"tag_name":\s*"([^"]+)".*/\1/')"
+	# Capture curl's full output into a variable first, then parse it -- do NOT
+	# pipe curl straight into grep/head: under `set -o pipefail`, a downstream
+	# reader that exits early (e.g. `grep -m1`, `head -1`) closes the pipe while
+	# curl is still writing, curl gets SIGPIPE and reports exit 23, and
+	# pipefail+errexit then aborts the script even though the request succeeded.
+	fex_api_json="$(curl -fsSL https://api.github.com/repos/FEX-Emu/FEX/releases/latest)"
+	FEX_TAG="$(printf '%s' "$fex_api_json" | grep '"tag_name"' | sed -E 's/.*"tag_name":\s*"([^"]+)".*/\1/')"
 	[ -n "$FEX_TAG" ] || die "could not resolve latest FEX release tag from the GitHub API"
 fi
 log "FEX tag: $FEX_TAG"
