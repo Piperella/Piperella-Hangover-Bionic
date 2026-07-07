@@ -39,11 +39,12 @@
 # MEM_RESET allocator pattern (FEX-Emu issue #4493 / steamwebhelper). CI builds
 # fresh ones from upstream FEX-Emu/FEX (see build-fex-arm64ec.sh) containing
 # that fix, and this override REQUIRES those freshly-built DLLs be present
-# (located via a broad filesystem search, since the Termux Docker container's
-# exact bind-mount path isn't guaranteed) -- it does not fall back to the stale
-# bundled ones, so a build that skips the fresh-FEX step fails loudly instead of
-# silently re-shipping the crash. wowbox64.dll (Box64) is unaffected by this and
-# still comes from the bundle.
+# (located at $TERMUX_SCRIPTDIR/piperella-fex-dlls -- run-docker.sh bind-mounts
+# the termux-packages root at $TERMUX_SCRIPTDIR in the container, so the CI's
+# staged DLLs land at a deterministic path) -- it does not fall back to the
+# stale bundled ones, so a build that skips the fresh-FEX step fails loudly
+# instead of silently re-shipping the crash. wowbox64.dll (Box64) is unaffected
+# by this and still comes from the bundle.
 #
 # Idempotent: guarded by a marker, so re-running and upstream recipe updates
 # are safe.
@@ -73,13 +74,27 @@ termux_step_post_massage() {
 	[ -d "$_winedir" ] || termux_error_exit "FEX install: wine dir missing in package ($_winedir)"
 
 	# libarm64ecfex.dll / libwow64fex.dll: REQUIRE the freshly-built overrides
-	# from build-fex-arm64ec.sh (upstream FEX with the #4493 fix). Search
-	# broadly since the exact bind-mount path inside the Docker container isn't
-	# guaranteed; -xdev keeps it from wandering into /proc, /sys, etc.
+	# from build-fex-arm64ec.sh (upstream FEX with the #4493 fix). The CI stages
+	# them into <termux-packages-root>/piperella-fex-dlls, and run-docker.sh
+	# bind-mounts the termux-packages root at $TERMUX_SCRIPTDIR inside the
+	# container, so the DLLs are at a DETERMINISTIC path -- no filesystem scan.
+	#
+	# (Do NOT reintroduce a `find / ... | head` here: `find /` exits non-zero on
+	# the permission-denied dirs it can't traverse, and under termux
+	# build-package.sh's `set -e -o pipefail` a bare `var="$(find ...|head)"`
+	# assignment propagates that non-zero and aborts the build silently -- before
+	# any termux_error_exit can report why. That footgun killed build #12.)
 	local _fresh_dir _fresh_info
-	_fresh_dir="$(find / -xdev -maxdepth 10 -type f -name libarm64ecfex.dll -path '*piperella-fex-dlls*' 2>/dev/null | head -n1)"
-	[ -n "$_fresh_dir" ] || termux_error_exit "FEX install: freshly-built libarm64ecfex.dll not found anywhere under piperella-fex-dlls/ -- the build-fex-arm64ec.sh step did not run or its output was not staged; refusing to fall back to the stale bundled FEX (issue #4493)"
-	_fresh_dir="$(dirname "$_fresh_dir")"
+	_fresh_dir="$TERMUX_SCRIPTDIR/piperella-fex-dlls"
+	if [ ! -s "$_fresh_dir/libarm64ecfex.dll" ]; then
+		# Scoped, set -e-safe fallback: search only the mounted tree (no /proc,
+		# /sys noise), tolerate find's exit status, and slice with head off a
+		# captured variable so find never takes SIGPIPE.
+		local _found
+		_found="$(find "$TERMUX_SCRIPTDIR" "${TERMUX_TOPDIR:-$TERMUX_SCRIPTDIR}" -maxdepth 12 -type f -name libarm64ecfex.dll -path '*piperella-fex-dlls*' 2>/dev/null || true)"
+		[ -n "$_found" ] && _fresh_dir="$(dirname "$(printf '%s\n' "$_found" | head -n1)")"
+	fi
+	[ -s "$_fresh_dir/libarm64ecfex.dll" ] || termux_error_exit "FEX install: freshly-built libarm64ecfex.dll not found at \$TERMUX_SCRIPTDIR/piperella-fex-dlls (or anywhere under the mounted tree) -- the build-fex-arm64ec.sh step did not run or its output was not staged; refusing to fall back to the stale bundled FEX (issue #4493)"
 	for _type in libarm64ecfex libwow64fex; do
 		[ -s "$_fresh_dir/${_type}.dll" ] || termux_error_exit "FEX install: $_fresh_dir/${_type}.dll missing/empty"
 		install -Dm644 "$_fresh_dir/${_type}.dll" "$_winedir/${_type}.dll"
