@@ -46,9 +46,10 @@ build time (nothing is forked or version-pinned), so it survives upstream update
     (not `/proc/self/exe`, which is `linker64`).
   - `fix-exec-wx.sh` — PE image loader backs executable sections with anonymous
     memory (`execmem`), avoiding the `execmod` SELinux denial under Android W^X.
-  - `fix-rpc-contexthandle.sh` — NULL-safe RPC client context-handle unmarshalling,
-    so a bad handle raises `RPC_X_SS_CONTEXT_MISMATCH` instead of crashing the
-    64-bit Steam client (`c0000005`).
+  - `fix-rpc-contexthandle.sh` / `fix-rpc-ctx-marshall.sh` — two NULL/low-pointer
+    guards in RPC client context-handle unmarshalling, so a bad handle raises
+    `RPC_X_SS_CONTEXT_MISMATCH` (or is redirected to a scratch) instead of
+    crashing the 64-bit Steam client (`c0000005`).
 
 ## How it works
 
