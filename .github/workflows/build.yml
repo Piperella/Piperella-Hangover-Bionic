@@ -65,6 +65,7 @@ jobs:
           ./patches/fix-wineserver-dir.sh "$recipe"
           ./patches/fix-nls-dir.sh "$recipe"
           ./patches/fix-exec-wx.sh "$recipe"
+          ./patches/fix-rpc-contexthandle.sh "$recipe"
           echo "----- patched recipe -----"
           grep -nE "TERMUX_PKG_DEPENDS=|TERMUX_PKG_BUILD_DEPENDS=|with-wayland|without-preloader|post_massage" \
             "$recipe"
@@ -149,6 +150,12 @@ jobs:
           Wine ${VERSION} · FEX \`${FEX_TAG}\` (\`${FEX_COMMIT}\`, includes the
           #4493 arm64ec/CEF MEM_RESET fix — Steam 64-bit no longer crash-loops)
           · Box64 (wowbox64.dll) unchanged from the Hangover ${VERSION} bundle.
+
+          Also carries a 1-hunk defensive fix to rpcrt4 \`ndr_contexthandle.c\`
+          (\`get_context_entry\` NULL-guard): a NULL/invalid client context handle
+          now raises RPC_X_SS_CONTEXT_MISMATCH instead of dereferencing NULL, so
+          the 64-bit Steam client no longer crashes (c0000005) when a server-side
+          service RPC fails under the Android sandbox.
 
           Build #${RUN} · commit ${GITHUB_SHA}
 
