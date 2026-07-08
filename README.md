@@ -50,6 +50,10 @@ build time (nothing is forked or version-pinned), so it survives upstream update
     guards in RPC client context-handle unmarshalling, so a bad handle raises
     `RPC_X_SS_CONTEXT_MISMATCH` (or is redirected to a scratch) instead of
     crashing the 64-bit Steam client (`c0000005`).
+  - `fix-vulkan-lib-env.sh` — win32u's host Vulkan loader honors
+    `$PIPERELLA_VULKAN_LIB`, so the app can point Wine at a non-public Vulkan
+    driver (our AdrenoTools→Turnip bridge) instead of the allowlisted system
+    `libvulkan.so.1`. Unset → default behaviour unchanged.
 
 ## How it works
 

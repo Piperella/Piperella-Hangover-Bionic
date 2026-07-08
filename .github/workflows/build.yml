@@ -67,6 +67,7 @@ jobs:
           ./patches/fix-exec-wx.sh "$recipe"
           ./patches/fix-rpc-contexthandle.sh "$recipe"
           ./patches/fix-rpc-ctx-marshall.sh "$recipe"
+          ./patches/fix-vulkan-lib-env.sh "$recipe"
           echo "----- patched recipe -----"
           grep -nE "TERMUX_PKG_DEPENDS=|TERMUX_PKG_BUILD_DEPENDS=|with-wayland|without-preloader|post_massage" \
             "$recipe"
@@ -158,6 +159,11 @@ jobs:
           raises RPC_X_SS_CONTEXT_MISMATCH), and \`ndr_marshall.c\`
           (\`NdrContextHandleUnmarshall\` redirects a bogus low/NULL context-handle
           pointer — observed 0x10 — to a scratch instead of writing through it).
+
+          win32u's host Vulkan loader honors \`\$PIPERELLA_VULKAN_LIB\`: if set, Wine
+          dlopen()s that soname instead of the allowlisted public \`libvulkan.so.1\`,
+          so the app can point Wine at an AdrenoTools→Turnip bridge. Unset →
+          default behaviour unchanged.
 
           Build #${RUN} · commit ${GITHUB_SHA}
 
