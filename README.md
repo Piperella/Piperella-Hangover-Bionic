@@ -9,37 +9,62 @@ built in CI and published as Release assets for the
 Android apps targeting API ≥ 29 can't `execve()` app-data binaries; the only legal
 launch path is `/system/bin/linker64 <elf>`, and `linker64` loads **bionic** ELFs,
 not glibc. Upstream Hangover ships a **glibc** build, so it can't be launched that
-way without fragile userland-exec hacks. Termux builds Hangover against **bionic**
-(NDK + llvm-mingw) with the same FEX WoW64 backends — it just lacks
-`winewayland.drv` (built X11-only). This repo adds the Wayland driver and ships the
-result.
+way. Termux builds Hangover against **bionic** (NDK + llvm-mingw), but its package
+lacks `winewayland.drv`, ships **stale FEX** backends, and isn't hardened for the
+`linker64`/W^X launch. This repo fixes all of that and publishes the result.
 
 ## What it produces
 
-A GitHub Release per Hangover version, always reachable at a stable URL:
+One GitHub Release **per successful build**, each marked `latest`, so a stable URL
+always resolves to the newest build:
 
 ```
 https://github.com/piperella/Piperella-Hangover-Bionic/releases/latest/download/hangover-bionic-aarch64.tar
 ```
 
-The tar contains the bionic `hangover-wine_<ver>_aarch64.deb` plus the bionic
-runtime-dependency `.debs` it links against. The Piperella app downloads this the
+The tar holds the bionic `hangover-wine_<ver>_aarch64.deb` plus the bionic
+runtime-dependency `.debs` it links against. The Piperella app downloads it the
 same way it already downloads upstream Hangover.
+
+## What we changed
+
+Everything is applied as **idempotent overlays** on the upstream termux recipe at
+build time (nothing is forked or version-pinned), so it survives upstream updates.
+
+- **Wayland** (`patches/enable-wayland.sh`) — adds `libwayland`/`libxkbcommon` +
+  `--with-wayland`, so `winewayland.drv` is built and talks to the compositor.
+- **Real FEX backends** (`patches/install-fex-backends.sh` + `build-fex-arm64ec.sh`) —
+  the upstream package silently drops the x86→ARM64 recompiler DLLs, and Hangover's
+  bundled ones are a stale FEX that crash-loops 64-bit/arm64ec apps (Steam's CEF,
+  FEX-Emu #4493). CI compiles **fresh FEX-2607** (`libwow64fex` + `libarm64ecfex`,
+  with the #4493 MEM_RESET fix) and forces them into the package; `wowbox64`
+  (Box64) is kept from the bundle.
+- **Runtime hardening for the `linker64` launch:**
+  - `fix-wineserver-dir.sh` — wineserver/temp dir honors `$XDG_RUNTIME_DIR`/`$TMPDIR`
+    instead of a baked Termux path; drops `wine-preloader` (unloadable at API 36).
+  - `fix-nls-dir.sh` — wineserver resolves its NLS/install dir via `$WINELOADER`
+    (not `/proc/self/exe`, which is `linker64`).
+  - `fix-exec-wx.sh` — PE image loader backs executable sections with anonymous
+    memory (`execmem`), avoiding the `execmod` SELinux denial under Android W^X.
+  - `fix-rpc-contexthandle.sh` — NULL-safe RPC client context-handle unmarshalling,
+    so a bad handle raises `RPC_X_SS_CONTEXT_MISMATCH` instead of crashing the
+    64-bit Steam client (`c0000005`).
 
 ## How it works
 
-- `.github/workflows/build.yml` — clones termux-packages (latest), applies the
-  Wayland overlay, builds with Termux's pinned **Docker builder** (free unlimited
-  Actions on a public repo), and publishes the Release. Nothing is version-pinned:
-  the Hangover version is read from the recipe.
-- `patches/enable-wayland.sh` — idempotent overlay: adds `libwayland`/`libxkbcommon`
-  deps + `--with-wayland`. Re-applied each build, so it survives upstream updates.
+- `.github/workflows/build.yml` — clones termux-packages (latest), builds fresh FEX,
+  applies the overlays, builds with Termux's pinned **Docker builder** (free
+  unlimited Actions on a public repo), gates the result, and publishes the Release.
+  The Hangover version is read from the recipe, not hardcoded.
+- `inspect-deb.sh` — **release gate**: fails the build unless the `.deb` contains
+  `winewayland.drv`, all three WoW64 backends (as PE), fresh (non-stale) FEX with a
+  `FEX_BUILD_INFO` record, and the runtime fixes above. A broken package is never
+  published.
 - `fetch-runtime-deps.sh` — resolves + downloads the bionic `.so` dependency closure
   from the Termux apt repos.
 - `build.sh` / `install-host-deps.sh` — optional local (no-Docker) native build.
 
 ## Run it
 
-Push to `patches/**` (or use the Actions tab → **Run workflow**) and the workflow
-builds + publishes. To build an older Hangover version, dispatch with a different
-`termux_ref`.
+Push to `patches/**` (or Actions tab → **Run workflow**) to build + publish. To
+build a different Hangover version, dispatch with another `termux_ref`.
