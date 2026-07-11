@@ -54,6 +54,13 @@ build time (nothing is forked or version-pinned), so it survives upstream update
     `$PIPERELLA_VULKAN_LIB`, so the app can point Wine at a non-public Vulkan
     driver (our AdrenoTools→Turnip bridge) instead of the allowlisted system
     `libvulkan.so.1`. Unset → default behaviour unchanged.
+  - `add-winewayland-xdg-foreign.sh` — cross-process window presentation for
+    `winewayland.drv` via `xdg-foreign-unstable-v2`: an owner process exports its
+    toplevel and a child process (e.g. Steam's `steamwebhelper.exe` CEF UI, which
+    renders in a separate Wine process and `SetParent`s into `steam.exe`) imports
+    the handle and `set_parent_of`s, so the child maps as a real `xdg_toplevel`
+    under the compositor instead of a black screen. Handle transported via a
+    cross-process global atom in a window property.
 
 ## How it works
 

@@ -68,6 +68,7 @@ jobs:
           ./patches/fix-rpc-contexthandle.sh "$recipe"
           ./patches/fix-rpc-ctx-marshall.sh "$recipe"
           ./patches/fix-vulkan-lib-env.sh "$recipe"
+          ./patches/add-winewayland-xdg-foreign.sh "$recipe"
           echo "----- patched recipe -----"
           grep -nE "TERMUX_PKG_DEPENDS=|TERMUX_PKG_BUILD_DEPENDS=|with-wayland|without-preloader|post_massage" \
             "$recipe"
@@ -164,6 +165,12 @@ jobs:
           dlopen()s that soname instead of the allowlisted public \`libvulkan.so.1\`,
           so the app can point Wine at an AdrenoTools→Turnip bridge. Unset →
           default behaviour unchanged.
+
+          winewayland.drv gains cross-process window presentation via
+          xdg-foreign-unstable-v2: steamwebhelper.exe's CEF windows (rendered in a
+          separate Wine process and SetParent'd into steam.exe) are now exported by
+          the owner and re-parented on the child via set_parent_of, so Steam's UI
+          maps as real xdg_toplevels under the compositor instead of a black screen.
 
           Build #${RUN} · commit ${GITHUB_SHA}
 
