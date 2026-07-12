@@ -68,6 +68,7 @@ jobs:
           ./patches/fix-rpc-contexthandle.sh "$recipe"
           ./patches/fix-rpc-ctx-marshall.sh "$recipe"
           ./patches/fix-vulkan-lib-env.sh "$recipe"
+          ./patches/inject-steamwebhelper-args.sh "$recipe"
           ./patches/add-winewayland-xdg-foreign.sh "$recipe"
           echo "----- patched recipe -----"
           grep -nE "TERMUX_PKG_DEPENDS=|TERMUX_PKG_BUILD_DEPENDS=|with-wayland|without-preloader|post_massage" \
@@ -171,6 +172,11 @@ jobs:
           separate Wine process and SetParent'd into steam.exe) are now exported by
           the owner and re-parented on the child via set_parent_of, so Steam's UI
           maps as real xdg_toplevels under the compositor instead of a black screen.
+
+          kernelbase CreateProcessInternalW appends \`\$STEAMWEBHELPER_EXTRA_ARGS\`
+          to steamwebhelper.exe (and its gpu/renderer/utility children), so extra
+          Chromium switches (e.g. \`--disable-direct-composition\`) can be tested as
+          a client-side env change. Unset → default behaviour unchanged.
 
           Build #${RUN} · commit ${GITHUB_SHA}
 

@@ -54,6 +54,12 @@ build time (nothing is forked or version-pinned), so it survives upstream update
     `$PIPERELLA_VULKAN_LIB`, so the app can point Wine at a non-public Vulkan
     driver (our AdrenoTools→Turnip bridge) instead of the allowlisted system
     `libvulkan.so.1`. Unset → default behaviour unchanged.
+  - `inject-steamwebhelper-args.sh` — `kernelbase` `CreateProcessInternalW`
+    appends `$STEAMWEBHELPER_EXTRA_ARGS` to `steamwebhelper.exe` (and its
+    gpu/renderer/utility children), so extra Chromium switches (e.g.
+    `--disable-direct-composition`) can be tested as a client-side env change
+    instead of a rebuild. Steam doesn't forward those flags itself. Unset →
+    default behaviour unchanged.
   - `add-winewayland-xdg-foreign.sh` — cross-process window presentation for
     `winewayland.drv` via `xdg-foreign-unstable-v2`: an owner process exports its
     toplevel and a child process (e.g. Steam's `steamwebhelper.exe` CEF UI, which
