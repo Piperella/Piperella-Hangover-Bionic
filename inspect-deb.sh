@@ -66,6 +66,13 @@ check "wowbox64.dll"      wowbox64.dll      1
 echo "Wine WoW64 thunk layer (informational):"
 check "wow64.dll"    wow64.dll    0
 check "wow64win.dll" wow64win.dll 0
+# Audio driver (informational, non-fatal): winepulse.drv is added by
+# patches/enable-pulseaudio.sh so Steam/games are not silent. Reported but NOT
+# release-blocking -- a missing audio backend must never take down the working
+# Deck-UI stack; if this shows MISSING, the pulse build dep didn't take and needs
+# a follow-up, but the build still publishes.
+echo "Audio driver (informational):"
+check "winepulse.drv" winepulse.drv 0
 
 # --- wineserver/temp dir must honor $XDG_RUNTIME_DIR, not a baked Termux path ---
 # Use process substitution (not a pipe): with `set -o pipefail`, `strings | grep -q`

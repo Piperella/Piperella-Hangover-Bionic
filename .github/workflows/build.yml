@@ -61,6 +61,7 @@ jobs:
         run: |
           recipe=.work/termux-packages/x11-packages/hangover-wine/build.sh
           ./patches/enable-wayland.sh "$recipe"
+          ./patches/enable-pulseaudio.sh "$recipe"
           ./patches/install-fex-backends.sh "$recipe"
           ./patches/fix-wineserver-dir.sh "$recipe"
           ./patches/fix-nls-dir.sh "$recipe"
@@ -177,6 +178,11 @@ jobs:
           to steamwebhelper.exe (and its gpu/renderer/utility children), so extra
           Chromium switches (e.g. \`--disable-direct-composition\`) can be tested as
           a client-side env change. Unset → default behaviour unchanged.
+
+          Audio: the build now compiles \`winepulse.drv\` and bundles the PulseAudio
+          daemon + libpulse + Android sink modules (module-sles-sink /
+          module-aaudio-sink), fixing \`mmdevapi:init_driver No driver\`. The app
+          runs the daemon with an OpenSL ES / AAudio sink and sets \`\$PULSE_SERVER\`.
 
           Build #${RUN} · commit ${GITHUB_SHA}
 

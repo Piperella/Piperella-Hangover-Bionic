@@ -33,6 +33,11 @@ build time (nothing is forked or version-pinned), so it survives upstream update
 
 - **Wayland** (`patches/enable-wayland.sh`) — adds `libwayland`/`libxkbcommon` +
   `--with-wayland`, so `winewayland.drv` is built and talks to the compositor.
+- **Audio** (`patches/enable-pulseaudio.sh`) — adds the `pulseaudio` dep so Wine
+  builds `winepulse.drv` (no more `mmdevapi:init_driver No driver`), and ships
+  the PulseAudio daemon + libpulse + Android sink modules
+  (`module-sles-sink`/`module-aaudio-sink`) in the tar. The app runs the daemon
+  with an OpenSL ES / AAudio sink and points Wine at it via `$PULSE_SERVER`.
 - **Real FEX backends** (`patches/install-fex-backends.sh` + `build-fex-arm64ec.sh`) —
   the upstream package silently drops the x86→ARM64 recompiler DLLs, and Hangover's
   bundled ones are a stale FEX that crash-loops 64-bit/arm64ec apps (Steam's CEF,
@@ -79,7 +84,10 @@ build time (nothing is forked or version-pinned), so it survives upstream update
   `FEX_BUILD_INFO` record, and the runtime fixes above. A broken package is never
   published.
 - `fetch-runtime-deps.sh` — resolves + downloads the bionic `.so` dependency closure
-  from the Termux apt repos.
+  from the Termux apt repos (now including `pulseaudio` + its closure).
+- `docs/FEX-CODE-CACHE.md` — investigation: FEX-2607 has **no** persistent code
+  cache (AOTIR/ObjectCache removed upstream), so cold-start JIT cost can't be
+  cached in this build; see the doc for evidence and options.
 - `build.sh` / `install-host-deps.sh` — optional local (no-Docker) native build.
 
 ## Run it
