@@ -1,0 +1,107 @@
+name: Build Steam client tar (preseed payload)
+
+# Manually triggered. Runs on a native Windows runner, installs Steam,
+# lets the bootstrapper download the full client (no login needed —
+# packages come down before authentication), then tars the finished
+# Steam tree and uploads it as a release asset.
+#
+# The tar preserves package/ + manifests so the phone-side bootstrapper's
+# checksum pass accepts the tree as-is (no redownload, no verify loop).
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Release tag to (re)publish the tar under"
+        required: false
+        default: "steam-client-latest"
+
+permissions:
+  contents: write
+
+jobs:
+  build-steam-tar:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - name: Download SteamSetup.exe
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri "https://cdn.cloudflare.steamstatic.com/client/installer/SteamSetup.exe" `
+            -OutFile "$env:TEMP\SteamSetup.exe"
+          (Get-Item "$env:TEMP\SteamSetup.exe").Length
+
+      - name: Silent install (extracts bootstrapper)
+        shell: pwsh
+        run: |
+          Start-Process -FilePath "$env:TEMP\SteamSetup.exe" -ArgumentList "/S" -Wait
+          $exe = "C:\Program Files (x86)\Steam\steam.exe"
+          if (-not (Test-Path $exe)) { throw "steam.exe missing after SteamSetup /S" }
+
+      - name: Run bootstrapper until client is fully downloaded
+        shell: pwsh
+        run: |
+          $steam = "C:\Program Files (x86)\Steam"
+          $ui    = Join-Path $steam "steamui.dll"
+          $pkg   = Join-Path $steam "package"
+          Start-Process -FilePath (Join-Path $steam "steam.exe")
+          $deadline = (Get-Date).AddMinutes(30)
+          while ((Get-Date) -lt $deadline) {
+            Start-Sleep -Seconds 15
+            $uiOk = (Test-Path $ui) -and ((Get-Item $ui).Length -gt 0)
+            if (-not $uiOk) { Write-Host "waiting: steamui.dll not yet present"; continue }
+            # steamui.dll present — now require the whole tree quiet for 90s
+            # (bootstrap keeps extracting + self-restarting after the dll lands)
+            $newest = Get-ChildItem $steam -Recurse -File |
+                      Sort-Object LastWriteTime -Descending |
+                      Select-Object -First 1
+            $quiet = ((Get-Date) - $newest.LastWriteTime).TotalSeconds
+            Write-Host ("steamui.dll OK; tree quiet for {0:n0}s (newest: {1})" -f $quiet, $newest.Name)
+            if ($quiet -gt 90) { break }
+          }
+          if (-not (Test-Path $ui)) { throw "bootstrap did not produce steamui.dll within 30min" }
+
+      - name: Kill Steam
+        shell: pwsh
+        run: |
+          taskkill /F /T /IM steam.exe          2>$null; exit 0
+
+      - name: Prune runner-local junk
+        shell: pwsh
+        run: |
+          $steam = "C:\Program Files (x86)\Steam"
+          foreach ($d in "logs","dumps","userdata","appcache\httpcache","steamapps\temp") {
+            $p = Join-Path $steam $d
+            if (Test-Path $p) { Remove-Item -Recurse -Force $p }
+          }
+          # ssfn / local machine auth artifacts must never ship
+          Get-ChildItem $steam -Filter "ssfn*" -File | Remove-Item -Force
+          "{0:n0} MB" -f ((Get-ChildItem $steam -Recurse -File | Measure-Object Length -Sum).Sum / 1MB)
+
+      - name: Tar the Steam tree
+        shell: pwsh
+        run: |
+          $stamp = Get-Date -Format "yyyyMMdd"
+          # bsdtar ships on windows runners; gzip keeps phone-side extraction
+          # simple (commons-compress TarArchiveInputStream + GZIP).
+          tar -C "C:\Program Files (x86)" -czf "$env:GITHUB_WORKSPACE\steam-client-win.tar.gz" Steam
+          Set-Content -Path "$env:GITHUB_WORKSPACE\steam-client.version" -Value $stamp
+          (Get-Item "$env:GITHUB_WORKSPACE\steam-client-win.tar.gz").Length
+
+      - name: Publish release asset
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # gh needs an explicit repo context: this job does not run
+          # actions/checkout, so there is no git remote for gh to infer from.
+          GH_REPO: ${{ github.repository }}
+        run: |
+          $tag = "${{ inputs.release_tag }}"
+          # recreate the tag's assets in place so the app's fetch URL is stable
+          gh release view $tag 2>$null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create $tag --title "Steam client preseed" `
+              --notes "Extracted Steam client tree for first-run preseeding. Rebuilt manually."
+          }
+          gh release upload $tag "$env:GITHUB_WORKSPACE\steam-client-win.tar.gz" --clobber
+          gh release upload $tag "$env:GITHUB_WORKSPACE\steam-client.version" --clobber
